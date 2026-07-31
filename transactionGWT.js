@@ -1,14 +1,47 @@
 /**
- * transactionDipSand.js - Sandblast & Dipping Quality Control Database Layer
- * Version: 1.0.5 - Fixed column mappings
+ * transactionGWT.js - GWT Output Database Layer
+ * Frontend API helper for Google Apps Script Sheet-as-DB backend
+ *
+ * Usage:
+ *   tx.create('abc', { def: 1, fgh: 'x' })
+ *   tx.patch('defg', [{ ID: 1, abc: 1 }])
+ *   tx.lookup('abc', { ID: 7 })
+ *   tx.range('abc', filters)  
  * 
+ * 
+ * Payload untuk filter:
+        {
+            cmd: "range",
+            sheet: "SheetName",
+            value: [
+                { field: "Amount", type: "n", start: 1, stop: 10 },
+                { field: "OrderDate", type: "d", start: "2025-01-01", stop: "2025-12-31" }
+            ]
+        }
+
+        Types:
+        - n = number
+        - d = date (yyyy-MM-dd)
+        - t = text
+
+        Text rules:
+        (start="abc", stop="")      → starts with abc
+        (start="", stop="def")      → ends with def
+        (start="abc", stop="def")   → starts abc AND ends def
+        (start="", stop="")         → non-empty text
+ *
+ *
  * Sheets:
- * - SANDBLAST (Quality data for Sandblast department)
- * - DIPPING (Quality data for Dipping department)
+ * - SANDBLAST (Sandblast station)
+ * - DIPPING (Dipping station)
+ * - SPONGING (Sponging station)
+ * - SPRAY (Spray station)
  */
 
 const SANDBLAST_SHEET = 'SANDBLAST';
 const DIPPING_SHEET = 'DIPPING';
+const SPONGING_SHEET = 'SPONGING';
+const SPRAY_SHEET = 'SPRAY';
 const TX_API_URL = 'https://script.google.com/macros/s/AKfycbwrmwNMxTJ--l-V9pCOnR0RpeQmI5JNNIElDCKz18ixBjVjU5uWHHRJeUS0DGrKkNl2/exec';
 
 let currentEditId = null;
@@ -165,14 +198,17 @@ function normalizeToYYYYMMDD(dateObj) {
 
 async function fetchAllSandDip(filters = []) {
     try {
-        console.log('📊 Fetching all records from SANDBLAST and DIPPING sheets...');
+        console.log('📊 Fetching all records from all sheets...');
         
+        // Fetch from all 4 sheets
         const sandblastResults = await tx.range(SANDBLAST_SHEET, filters);
         const dippingResults = await tx.range(DIPPING_SHEET, filters);
+        const spongingResults = await tx.range(SPONGING_SHEET, filters);
+        const sprayResults = await tx.range(SPRAY_SHEET, filters);
         
-        console.log(`📊 SANDBLAST: ${sandblastResults.length} records, DIPPING: ${dippingResults.length} records`);
+        console.log(`📊 SANDBLAST: ${sandblastResults.length}, DIPPING: ${dippingResults.length}, SPONGING: ${spongingResults.length}, SPRAY: ${sprayResults.length}`);
         
-        // Normalize SANDBLAST data - FIXED column mappings
+        // Normalize SANDBLAST data
         const sandblastData = sandblastResults.map(row => {
             const timestamp = row['Timestamp'] || '';
             return {
@@ -184,7 +220,7 @@ async function fetchAllSandDip(filters = []) {
                 quantityAccept: parseFloat(row['QUANTITY ACCEPT (PCS)']) || 0,
                 quantityReject: parseFloat(row['QUANTITY REJECT (PCS)']) || 0,
                 rejection: row['REJECTION'] || '',
-                workerName: row['WORKER NAME'] || row['WORKER NAME'] || '',
+                workerName: row['WORKER NAME'] || '',
                 passingRate: row['PASSING RATE'] || '',
                 createdDate: timestamp,
                 _original: row
@@ -210,7 +246,45 @@ async function fetchAllSandDip(filters = []) {
             };
         });
         
-        const combined = [...sandblastData, ...dippingData];
+        // Normalize SPONGING data
+        const spongingData = spongingResults.map(row => {
+            const timestamp = row['Timestamp'] || '';
+            return {
+                department: 'SPONGING',
+                shift: row['SHIFT'] || '',
+                sizeCode: row['SIZE/CODE (EX: XL2/122)'] || row['SIZE/CODE'] || '',
+                factory: row['FACTORY'] || '',
+                rNo: row['RR NO./TOTAL RR NO.'] || '',
+                quantityAccept: parseFloat(row['QUANTITY ACCEPT (PCS)']) || 0,
+                quantityReject: parseFloat(row['QUANTITY REJECT (PCS)']) || 0,
+                rejection: row['REJECTION'] || '',
+                workerName: row['WORKER NAME'] || '',
+                passingRate: row['PASSING RATE'] || '',
+                createdDate: timestamp,
+                _original: row
+            };
+        });
+        
+        // Normalize SPRAY data
+        const sprayData = sprayResults.map(row => {
+            const timestamp = row['Timestamp'] || '';
+            return {
+                department: 'SPRAY',
+                shift: row['SHIFT'] || '',
+                sizeCode: row['SIZE/CODE (EX: XL2/122)'] || row['SIZE/CODE'] || '',
+                factory: row['FACTORY'] || '',
+                rNo: row['RR NO./TOTAL RR NO.'] || '',
+                quantityAccept: parseFloat(row['QUANTITY ACCEPT (PCS)']) || 0,
+                quantityReject: parseFloat(row['QUANTITY REJECT (PCS)']) || 0,
+                rejection: row['REJECTION'] || '',
+                workerName: row['WORKER NAME'] || '',
+                passingRate: row['PASSING RATE'] || '',
+                createdDate: timestamp,
+                _original: row
+            };
+        });
+        
+        const combined = [...sandblastData, ...dippingData, ...spongingData, ...sprayData];
         combined.sort((a, b) => {
             const dateA = a.createdDate ? parseDate(a.createdDate) : new Date(0);
             const dateB = b.createdDate ? parseDate(b.createdDate) : new Date(0);
@@ -311,8 +385,21 @@ async function updateSandDipRecord(refId, data, department) {
     try {
         console.log('🆔 Updating record ID:', refId, 'Department:', department);
         
-        const sheetName = department === 'SANDBLAST' ? SANDBLAST_SHEET : DIPPING_SHEET;
+        // Determine which sheet to update
+        let sheetName;
+        if (department === 'SANDBLAST') {
+            sheetName = SANDBLAST_SHEET;
+        } else if (department === 'DIPPING') {
+            sheetName = DIPPING_SHEET;
+        } else if (department === 'SPONGING') {
+            sheetName = SPONGING_SHEET;
+        } else if (department === 'SPRAY') {
+            sheetName = SPRAY_SHEET;
+        } else {
+            throw new Error('Unknown department: ' + department);
+        }
         
+        // Fetch the original record
         const existingRecords = await tx.range(sheetName, [
             { field: 'ID', type: 't', start: String(refId), stop: '' }
         ]);
@@ -322,13 +409,12 @@ async function updateSandDipRecord(refId, data, department) {
             throw new Error('Record not found for ID: ' + refId);
         }
         
-        let updateData = {
-            'ID': String(refId)
-        };
+        const originalRecord = existingRecords[0];
+        console.log('📄 Original record:', originalRecord);
         
-        // Both sheets have similar columns now
-        updateData = {
-            ...updateData,
+        // Build update data - all departments use same columns
+        let updateData = {
+            'ID': String(refId),
             'SHIFT': data.shift || '',
             'SIZE/CODE (EX: XL2/122)': data.sizeCode || '',
             'FACTORY': data.factory || '',
@@ -336,13 +422,9 @@ async function updateSandDipRecord(refId, data, department) {
             'QUANTITY ACCEPT (PCS)': data.quantityAccept || '0',
             'QUANTITY REJECT (PCS)': data.quantityReject || '0',
             'REJECTION': data.rejection || '',
-            'WORKER NAME': data.workerName || ''
+            'WORKER NAME': data.workerName || '',
+            'PASSING RATE': data.passingRate || ''
         };
-        
-        // Only SANDBLAST has PASSING RATE
-        if (department === 'SANDBLAST') {
-            updateData['PASSING RATE'] = data.passingRate || '';
-        }
         
         console.log('📤 Sending UPDATE (PATCH):', updateData);
         
@@ -396,7 +478,9 @@ window.SANDDIP_DB = {
     getCurrentEditId,
     SANDBLAST_SHEET,
     DIPPING_SHEET,
-    VERSION: '1.0.5'
+    SPONGING_SHEET,
+    SPRAY_SHEET,  
+    VERSION: '1.0.0'
 };
 
 console.log('✅ Sandblast & Dipping Database module loaded (Version 1.0.5)');
