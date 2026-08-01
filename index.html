@@ -277,24 +277,23 @@
                 function safeToLower(val) {
                     return safeToString(val).toLowerCase();
                 }
-
+                
                 // ==============================================
-                // EXTRACT SIZE FROM SIZE/CODE
+                // EXTRACT SIZE FROM SIZE/CODE (EXACT MATCH)
                 // ==============================================
                 function extractSize(sizeCode) {
                     if (!sizeCode) return '';
                     const str = safeToString(sizeCode).trim();
-                    // Try to match patterns like XL2/122, XL2 122, XL/122, M/324, L/122, etc.
+                    
+                    // Try to match pattern: anything before / or space
+                    // Examples: XL2/122 → XL2, XL2 122 → XL2, XL/122 → XL
                     const match = str.match(/^([A-Za-z0-9]+)[\s\/]/);
                     if (match) {
                         return match[1].toUpperCase();
                     }
-                    // If no separator, try to extract letters only
-                    const letters = str.match(/^[A-Za-z]+/);
-                    if (letters) {
-                        return letters[0].toUpperCase();
-                    }
-                    return str;
+                    
+                    // If no separator, return the whole string
+                    return str.toUpperCase();
                 }
 
                 // ==============================================
