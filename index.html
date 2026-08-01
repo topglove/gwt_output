@@ -285,14 +285,20 @@
                     if (!sizeCode) return '';
                     const str = safeToString(sizeCode).trim();
                     
-                    // Try to match pattern: anything before / or space
+                    // If the whole string is just letters and numbers (no separator)
+                    // Examples: XL2, XL, L, M, XS, XXL
+                    if (!str.includes('/') && !str.includes(' ')) {
+                        return str.toUpperCase();
+                    }
+                    
+                    // Extract first word before / or space
                     // Examples: XL2/122 → XL2, XL2 122 → XL2, XL/122 → XL
                     const match = str.match(/^([A-Za-z0-9]+)[\s\/]/);
                     if (match) {
                         return match[1].toUpperCase();
                     }
                     
-                    // If no separator, return the whole string
+                    // If no separator and no match, return the whole string
                     return str.toUpperCase();
                 }
 
